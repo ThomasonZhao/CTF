@@ -1,0 +1,6 @@
+[submodule "tools/pwndocker"]
+	path = tools/pwndocker
+	url = git@github.com:skysider/pwndocker.git
+[submodule "tools/glibc-all-in-one"]
+	path = tools/glibc-all-in-one
+	url = git@github.com:matrix1001/glibc-all-in-one.git
