@@ -327,3 +327,45 @@ alloc -> UAF -> tcache poison -> realloc to leave the poisoned chain in tcache -
 At the end of attacking chain, I choose to overwrite the got table of `atoll(input)` to be the plt of `printf` since it is used in `read_long` to receive user's choice. It directly use user input for its parameters, which easily form a format string attack to leak addresses.   
 
 [EXP](./re-alloc/exp_re-alloc.py)
+
+## tcache_tear
+
+The libc version this challenge uses is 2.27, which is very early version of tcache feature. Tcache was introduced into libc from 2.26. It do speed up the allocation process, but it abandoned many necessary security checks for this new feature. This challenge is a good enxample. Early version of tcache struct:
+
+```c
+#if USE_TCACHE
+ 
+/* We overlay this structure on the user-data portion of a chunk when
+   the chunk is stored in the per-thread cache.  */
+typedef struct tcache_entry
+{
+  struct tcache_entry *next;
+} tcache_entry;
+```
+
+We could see that it only contains one pointer to the next, and **NO CHECKS ON DOUBLE FREE**. You can free a chunk arbitrary times and tcache chain will always loop back to itself. This clearly is a tcache poison vulnerability which could easily grant us arbitrary write previliege. 
+
+The next step is to do the exploit. After examination, the got is not writable and no function pointers inside the binary. Which means that we need to find a way to leak out libc first. The `info` function looks suspicious, it just prints out the `Name` that we enter to the program. The purpose of this might be able to leak something out from the `.bss` segment.
+
+After some search on heap exploits, I found that House of spirit could be a way. We could use the `Name` field in the `.bss` segment to make a fake chunk. Arbitrary write from tcache poison can be used to make the follow chunks to bypass the checks. The structure looks like this:
+
+```
+prev_size     cur_size
+---------------------- name ptr
+0             0x501
+.bss name fake chunk
+...
+----------------------
+0             0x21
+0             0
+----------------------
+0             0x21
+0             0
+----------------------
+```
+
+With the structure above, we could free the fake chunk in the `.bss` segment and it will be put into the unsorted bin (when size larger than 0x408, it cannot fit into tcache). By the time it was put into the unsorted bin, it will have two pointers (prev, next) points to the main arena, which then leaks the libc address by the `info` function.
+
+With the libc address, we could easily overwrite the function pointers in libc, for example: `__free_hook`. `one_gadget` will help us to do the one shot exploit XD
+
+[EXP](./tcache_tear/exp_tcache_tear.py)
