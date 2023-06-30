@@ -369,3 +369,104 @@ With the structure above, we could free the fake chunk in the `.bss` segment and
 With the libc address, we could easily overwrite the function pointers in libc, for example: `__free_hook`. `one_gadget` will help us to do the one shot exploit XD
 
 [EXP](./tcache_tear/exp_tcache_tear.py)
+
+## seethefile
+
+The challenge give us arbitrary file read previlege. We can read any files on the machine except the flags. One common trick is to use `/proc/self/maps` to get the memory mapping to leakout addresses. So we could easily get libc address from the file read.
+
+Then we need to consider how to do the exploit. When exiting the program, it let us write our name and close the `fp`. There is an overflow when reading the names, so we could overwrite the file pointer to some fake address and craft exploits. 
+
+```s
+.bss:0804B260 ; char name[32]
+.bss:0804B260 name            db 20h dup(?)           ; DATA XREF: main+9F↑o
+.bss:0804B260                                         ; main+B4↑o
+.bss:0804B280                 public fp
+.bss:0804B280 ; FILE *fp
+.bss:0804B280 fp              dd ?                    ; DATA XREF: openfile+6↑r
+.bss:0804B280                                         ; openfile+AD↑w ...
+.bss:0804B280 _bss            ends
+```
+
+For the `FILE` / `_IO_FILE` struct, we could checkout the [source code](https://elixir.bootlin.com/glibc/glibc-2.23/source/libio/libio.h#L241) for further information. More important part is how to achieve the attack. By comparing with the source code of `fclose` and analyzing the decompiled code from `libc.so`, after a bunch of checks on the struct, it will execute `_IO_FINISH (fp);` which will call the function pointer in `vtable`'s `finish` section with the argument `fp` of type `FILE *`. Since we have full control of the fake struct, we could also modify `vtable` pointer to point to anywhere we want. 
+
+Now it's time to discuss how to bypass the checks. By analyzing decompiled code, we could see that it will first compare `fp->flags & 0x2000` with `0`. If it is `0`, then jump to `LABEL_19` and compare `v3 = fp->flags & 0x8000` with `0`. If it isn't `0`, it will call  the function pointer in `LABEL_20`, which is in the `vtable`.
+
+```c
+int __cdecl fclose(_BYTE *a1)
+{
+  // Variables declarations
+  _EBX = &tbyte_1B0000;
+  if ( a1[70] )
+    return fclose_0(a1);
+  v2 = *(_DWORD *)a1;
+  if ( (*(_DWORD *)a1 & 0x2000) != 0 )
+  {
+    IO_un_link(a1);
+    v2 = *(_DWORD *)a1;
+    if ( (BYTE1(*(_DWORD *)a1) & 0x80u) != 0 )
+      goto LABEL_11;
+  }
+  else
+  {
+    v3 = *(_DWORD *)a1 & 0x8000;
+    if ( (v2 & 0x8000) != 0 )
+      goto LABEL_19;
+  }
+  _EDX = *((_DWORD *)a1 + 18);
+  v5 = __readgsdword(8u);
+  if ( v5 != *(_DWORD *)(_EDX + 8) )
+  {
+    _ECX = 1;
+    v7 = __readgsdword(0xCu) == 0;
+    if ( !v7 )
+      __asm { lock }
+    __asm { cmpxchg [edx], ecx }
+    if ( !v7 )
+      sub_F1AE0(_EDX);
+    _EDX = *((_DWORD *)a1 + 18);
+    v2 = *(_DWORD *)a1;
+    *(_DWORD *)(_EDX + 8) = v5;
+  }
+  ++*(_DWORD *)(_EDX + 4);
+LABEL_11:
+  v3 = v2 & 0x8000;
+  if ( (v2 & 0x2000) != 0 )
+  {
+    v8 = IO_file_close_it_0(a1);
+    if ( (*(_DWORD *)a1 & 0x8000) == 0 )
+      goto LABEL_13;
+    goto LABEL_20;
+  }
+LABEL_19:
+  v8 = v2 << 26 >> 31;
+  if ( !v3 )
+  {
+LABEL_13:
+    v9 = (_DWORD *)*((_DWORD *)a1 + 18);
+    v7 = v9[1]-- == 1;
+    if ( v7 )
+    {
+      v9[2] = 0;
+      if ( __readgsdword(0xCu) )
+        __asm { lock }
+      v7 = (*v9)-- == 1;
+      if ( !v7 )
+        sub_F1B10();
+    }
+  }
+LABEL_20:
+  (*(void (__stdcall **)(_BYTE *, _DWORD, int, int, int, int, int))(*(_DWORD *)&a1[(char)a1[70] + 148] + 8))(
+    a1,
+    0,
+    v13,
+    v14,
+    v15,
+    v16,
+    v17);
+  // Other code
+}
+```
+
+We could craft our fake struct's `flags` field easily bypass the checks, but after successfully called `system`, the argument is `(char *)fp`, which also in the `flags` field. Unfortunately, `/bin` cannot bypass the checks. But what if we leave `flags` as non-null characters and execute the command from behind by using `;` to split commands? Then the final exploit call will be `system("\x??\x??\x??\x??;/bin/ls")`. It can still give use the shell!
+
+[EXP](./seethefile/exp_seethefile.py)
