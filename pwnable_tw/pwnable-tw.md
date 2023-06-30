@@ -330,6 +330,8 @@ At the end of attacking chain, I choose to overwrite the got table of `atoll(inp
 
 ## tcache_tear
 
+Solved 2023/6/28
+
 The libc version this challenge uses is 2.27, which is very early version of tcache feature. Tcache was introduced into libc from 2.26. It do speed up the allocation process, but it abandoned many necessary security checks for this new feature. This challenge is a good enxample. Early version of tcache struct:
 
 ```c
@@ -371,6 +373,8 @@ With the libc address, we could easily overwrite the function pointers in libc, 
 [EXP](./tcache_tear/exp_tcache_tear.py)
 
 ## seethefile
+
+Solved 2023/6/30
 
 The challenge give us arbitrary file read previlege. We can read any files on the machine except the flags. One common trick is to use `/proc/self/maps` to get the memory mapping to leakout addresses. So we could easily get libc address from the file read.
 
