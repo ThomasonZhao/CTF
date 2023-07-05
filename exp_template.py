@@ -25,6 +25,7 @@ if LOCAL:
     # gdb.attach(p, """
     #         """)
     p = gdb.debug(elf.file.name, """
+            c
             """)
 else:
     context.log_level = "info"
