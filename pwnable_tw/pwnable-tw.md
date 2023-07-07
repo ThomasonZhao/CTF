@@ -170,7 +170,7 @@ For eazy to use, the programmer wrap up a puts function and put its pointer into
 
 [EXP](./hacknote/exp_hacknote.py)
 
-## Silver Bullet
+## silver_bullet
 
 Solved 2022/10/15
 
@@ -474,3 +474,63 @@ LABEL_20:
 We could craft our fake struct's `flags` field easily bypass the checks, but after successfully called `system`, the argument is `(char *)fp`, which also in the `flags` field. Unfortunately, `/bin` cannot bypass the checks. But what if we leave `flags` as non-null characters and execute the command from behind by using `;` to split commands? Then the final exploit call will be `system("\x??\x??\x??\x??;/bin/ls")`. It can still give use the shell!
 
 [EXP](./seethefile/exp_seethefile.py)
+
+## death_note
+
+Solved 2023/7/7
+
+After checksec, it has RWX segments, which probably will be code injection / shellcoding style challenge. Also, no libc is given, which also means the binary is probably enough for solving the challenge.
+
+> However, I found in my machine, Ubuntu 23.04, not sure if it is the kernel enable some protection for binaries, I cannot get any `RWX` segment except the stack, even I patch it with glibc 2.23. But the searches shows that the shellcoding should be the intended solution (at least heap is `RWX`, not on the stack).
+
+```
+Arch:     i386-32-little
+RELRO:    Partial RELRO
+Stack:    Canary found
+NX:       NX disabled
+PIE:      No PIE (0x8048000)
+RWX:      Has RWX segments
+```
+
+After examine the decompiled code, we could see that when inputing the index, it can be negative, which cause arbitrary write pointer overwrite. The next step will be how to write printable ascii shellcode.
+
+```c
+idx = read_int();
+if ( idx > 10 )
+{
+  puts("Out of bound !!");
+  exit(0);
+}
+```
+
+I choose to overwrite `GOT` of the `free` function because we can choose what to "free" and it is a free pointer to allow us to enter strings like `/bin/sh`, which will be really helpful. So here is the context when entering shellcode region after we added a note with content `/bin/sh`.
+
+```
+─────────────────────────────────────────────────────────────────────────────────────────────────────── registers ────
+$eax   : 0x09ce4008  →  "/bin/sh"
+$ebx   : 0x0
+$ecx   : 0x0
+$edx   : 0x0
+$esp   : 0xffa6493c  →  0x08048878  →  <del_note+81> add esp, 0x10
+$ebp   : 0xffa64968  →  0xffa64978  →  0x00000000
+$esi   : 0xf7f3a000  →  0x001b1db0
+$edi   : 0xf7f3a000  →  0x001b1db0
+$eip   : 0x09ce4018  →  0x00005050 ("PP"?)
+$eflags: [zero carry PARITY ADJUST SIGN trap INTERRUPT direction overflow resume virtualx86 identification]
+$cs: 0x23 $ss: 0x2b $ds: 0x2b $es: 0x2b $fs: 0x00 $gs: 0x63
+─────────────────────────────────────────────────────────────────────────────────────────────────────────── stack ────
+0xffa6493c│+0x0000: 0x08048878  →  <del_note+81> add esp, 0x10   ← $esp
+0xffa64940│+0x0004: 0x09ce4008  →  "/bin/sh"
+0xffa64944│+0x0008: 0x00000002
+0xffa64948│+0x000c: 0xffa64968  →  0xffa64978  →  0x00000000
+0xffa6494c│+0x0010: 0x08048842  →  <del_note+27> mov DWORD PTR [ebp-0xc], eax
+0xffa64950│+0x0014: 0x08048be4  →  "Your choice :"
+0xffa64954│+0x0018: 0xf7f3a000  →  0x001b1db0
+0xffa64958│+0x001c: 0xffa64978  →  0x00000000
+```
+
+And luckily, `ebx, ecx, edx` are all `0` when entering the shellcode region. We only need to config `eax` and transfer the pointer to `ebx`. And `push e*x & pop e*x` are valid ascii assembly code after compile! The final point is just to change some instruction to `int 0x80` syscall instruction to allow us to make the call, which is easy after computed the offset from the pointer of `/bin/sh`. 
+
+I reference this [site](https://nets.ec/Ascii_shellcode) and some of my own tests for ascii shellcoding. 
+
+[EXP](./death_note/exp_death_note.py)
