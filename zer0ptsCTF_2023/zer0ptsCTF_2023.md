@@ -1,4 +1,4 @@
-# zer0ptsCTF_2023
+# zer0ptsCTF 2023
 
 Official repo: https://github.com/zer0pts/zer0pts-ctf-2023-public/tree/master
 
